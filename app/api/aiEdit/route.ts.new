@@ -1,0 +1,141 @@
+import { editSchema } from "@/lib/zodSchema";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import axios from "axios";
+import { NextRequest } from "next/server";
+import { getProject, hasProject, saveProject } from "@/lib/localStore";
+
+export async function POST(request: NextRequest) {
+    const body = await request.json();
+    const { success } = editSchema.safeParse(body);
+
+    if (!success) {
+        return new Response(JSON.stringify({ error: "Invalid input" }), { status: 400 });
+    }
+
+    const prompt = `Make change in the HTML file: ${body.html} ,based on the user prompt: ${body.prompt}.
+    The website must be same as the previos one only make changes based on the user prompt.
+    Return only the HTML string, with no additional text, explanations, or comments outside the HTML code start from !<Doctype Html> and do not add anything at start or end.
+    Ensure the code is clean, well-indented, and free of errors (e.g., unclosed tags or invalid attributes).`
+
+    try {
+        // Validate API key is available
+        if (!process.env.GEMINI_API_KEY) {
+            console.error("GEMINI_API_KEY is not defined in environment");
+            return new Response(JSON.stringify({ error: "API key configuration error" }), { 
+                status: 500,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-2.5-flash-preview-04-17",
+            generationConfig: {
+                maxOutputTokens: 8192,           // Token limit for response
+                temperature: 0.4,                // Lower temperature for edits to maintain consistency
+                topK: 40,                        // Consider top 40 tokens for diversity
+                topP: 0.95                       // Sample from 95% of probability mass
+            }
+        });
+        
+        // Set a timeout for the API call
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+        
+        let site = "";
+        try {
+            // Generate content with safety settings and timeout
+            const result = await model.generateContent({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    stopSequences: ["```"]  // Avoid code block markers
+                },
+                safetySettings: [
+                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" }
+                ]
+            }, { signal: controller.signal });
+            
+            clearTimeout(timeoutId);
+            
+            // Check for empty response instead of using promptFeedback
+            if (!result.response || !result.response.text()) {
+                throw new Error("Gemini API returned an empty response");
+            }
+            
+            // Extract and clean up the response text
+            site = result.response.text();
+            
+            // Limit the size of the response if it's too large
+            if (site.length > 500000) {
+                site = site.substring(0, 500000); // Truncate to avoid memory issues
+                console.warn("Generated site was truncated to 500KB to avoid memory issues");
+            }
+        } catch (genError: any) {  // Using any for error handling
+            clearTimeout(timeoutId);
+            if (genError.name === "AbortError") {
+                throw new Error("Gemini API request timed out after 60 seconds");
+            }
+            throw genError;
+        }
+           
+        // Clean up response
+        site = site.replace(/```html\s*/g, ""); // Remove at start
+        site = site.replace(/\s*```/g, ""); // Remove at end
+        
+        // Ensure the response starts with DOCTYPE declaration
+        if (!site.includes("<!DOCTYPE html") && !site.includes("<!doctype html")) {
+            site = "<!DOCTYPE html>\n" + site;
+        }
+        
+        // Validate Pexels image URLs with timeout
+        const imageUrls = site.match(/https:\/\/images\.pexels\.com\/photos\/\d+\/pexels-photo-\d+\.jpeg/g) || [];
+        const validationPromises = imageUrls.map(async (url) => {
+            try {
+                // Set a short timeout for image validation
+                await axios.head(url, { timeout: 2000 });
+                return { url, valid: true };
+            } catch {
+                return { url, valid: false };
+            }
+        });
+        
+        // Process images in parallel with a short timeout
+        const results = await Promise.allSettled(validationPromises);
+        
+        // Replace invalid images with verified fallbacks
+        results.forEach(result => {
+            if (result.status === "fulfilled" && !result.value.valid) {
+                site = site.replace(result.value.url, "https://images.pexels.com/photos/1181244/pexels-photo-1181244.jpeg");
+            }
+        });
+        
+        // If the ID was provided, update the project in the local store
+        if (body.id && hasProject(body.id)) {
+            const existingProject = getProject(body.id);
+            
+            // Update the project with the edited content
+            saveProject(body.id, {
+                ...existingProject,
+                content: site,
+                updatedAt: new Date().toISOString(),
+                lastEditPrompt: body.prompt
+            });
+        }
+    
+        return new Response(JSON.stringify(site), { 
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+        });
+    } catch (error) {
+        console.error("Error in aiEdit route:", error);
+        return new Response(JSON.stringify({
+            error: error instanceof Error ? error.message : "Internal server error"
+        }), { 
+            status: 500,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+}

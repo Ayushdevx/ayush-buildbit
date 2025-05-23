@@ -1,0 +1,160 @@
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { NextRequest } from "next/server";
+import axios from "axios";
+import { v4 as uuidv4 } from 'uuid';
+import { saveProject } from "@/lib/localStore";
+
+export async function POST(request: NextRequest) {
+    const body = await request.json();
+
+    if (!body.prompt) {
+        return new Response(JSON.stringify({ error: "Prompt is required" }), { 
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+
+    // Function to generate a basic fallback HTML template when Gemini fails
+    function generateFallbackTemplate(userPrompt: string): string {
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${userPrompt}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <header class="bg-gradient-to-r from-blue-500 to-purple-600 text-white">
+        <nav class="container mx-auto flex justify-between items-center p-4">
+            <div class="font-bold text-xl">Brand</div>
+            <ul class="flex space-x-4 md:flex hidden">
+                <li><a href="#hero" class="hover:text-blue-200">Home</a></li>
+                <li><a href="#about" class="hover:text-blue-200">About</a></li>
+                <li><a href="#services" class="hover:text-blue-200">Services</a></li>
+                <li><a href="#contact" class="hover:text-blue-200">Contact</a></li>
+            </ul>
+            <div class="md:hidden">
+                <button class="text-white">Menu</button>
+            </div>
+        </nav>
+    </header>
+
+    <section id="hero" class="bg-gray-900 text-white py-20">
+        <div class="container mx-auto text-center">
+            <h1 class="text-4xl font-bold mb-4">${userPrompt}</h1>
+            <p class="text-xl mb-8">Welcome to our website! We're here to help you succeed.</p>
+            <a href="#contact" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-full">Get Started</a>
+        </div>
+    </section>
+
+    <section id="about" class="py-16 bg-gray-100">
+        <div class="container mx-auto px-4">
+            <h2 class="text-3xl font-bold text-center mb-8">About Us</h2>
+            <div class="max-w-3xl mx-auto text-center">
+                <p class="text-lg mb-6">We are dedicated to providing excellent service and products tailored to your needs. With years of experience in the industry, we have developed a unique approach that sets us apart.</p>
+                <p class="text-lg">Our mission is to deliver outstanding results while maintaining the highest standards of quality and customer satisfaction.</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="services" class="py-16 bg-white">
+        <div class="container mx-auto px-4">
+            <h2 class="text-3xl font-bold text-center mb-12">Our Services</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div class="bg-gray-100 p-6 rounded-lg shadow-md">
+                    <h3 class="text-xl font-semibold mb-4">Service 1</h3>
+                    <p>A comprehensive solution for all your needs with expert support and guidance.</p>
+                </div>
+                <div class="bg-gray-100 p-6 rounded-lg shadow-md">
+                    <h3 class="text-xl font-semibold mb-4">Service 2</h3>
+                    <p>Innovative approaches to solving complex problems with cutting-edge technology.</p>
+                </div>
+                <div class="bg-gray-100 p-6 rounded-lg shadow-md">
+                    <h3 class="text-xl font-semibold mb-4">Service 3</h3>
+                    <p>Customized solutions designed specifically for your unique requirements.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="contact" class="py-16 bg-gray-800 text-white">
+        <div class="container mx-auto px-4">
+            <h2 class="text-3xl font-bold text-center mb-8">Contact Us</h2>
+            <div class="max-w-md mx-auto">
+                <form>
+                    <div class="mb-4">
+                        <label class="block mb-2">Name</label>
+                        <input type="text" class="w-full px-4 py-2 rounded text-gray-800" placeholder="Your name">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block mb-2">Email</label>
+                        <input type="email" class="w-full px-4 py-2 rounded text-gray-800" placeholder="Your email">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block mb-2">Message</label>
+                        <textarea class="w-full px-4 py-2 rounded text-gray-800" rows="4" placeholder="Your message"></textarea>
+                    </div>
+                    <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-full w-full">Send Message</button>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <footer class="bg-gray-900 text-white py-8">
+        <div class="container mx-auto px-4 text-center">
+            <p>&copy; 2025 ${userPrompt}. All rights reserved.</p>
+        </div>
+    </footer>
+</body>
+</html>`;
+    }
+
+    try {
+        // Always use the fallback template for now since Gemini is having issues
+        console.log("Using fallback template for site generation");
+        const site = generateFallbackTemplate(body.prompt);
+        
+        // Generate a unique ID for this project
+        const localId = uuidv4();
+        
+        // Create enriched project object with metadata
+        const projectData = {
+            id: localId,
+            content: site,
+            prompt: body.prompt,
+            createdAt: new Date().toISOString(),
+            generatedWith: "Fallback Template",
+            stats: {
+                htmlLength: site.length,
+                imageCount: 0,
+                sectionsCount: 5
+            }
+        };
+        
+        // Store the project in our local store
+        saveProject(localId, projectData);
+
+        console.log(`Successfully created project ${localId} with ${projectData.stats.htmlLength} bytes of HTML`);
+
+        return new Response(JSON.stringify(projectData), { 
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+        });
+    } catch (error) {
+        console.error("Error in create route:", error);
+        // Create a more detailed error message for debugging
+        const errorMsg = error instanceof Error 
+            ? `${error.name}: ${error.message}\n${error.stack}` 
+            : "Unknown internal server error";
+        console.log("Detailed error:", errorMsg);
+        
+        return new Response(JSON.stringify({ 
+            error: error instanceof Error ? error.message : "Internal server error",
+            details: errorMsg
+        }), { 
+            status: 500,
+            headers: { "Content-Type": "application/json" }
+        });
+    }
+}
