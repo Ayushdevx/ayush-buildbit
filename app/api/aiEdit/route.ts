@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-2.5-flash-preview-04-17",
+            model: "gemini-2.0-flash",
             generationConfig: {
                 maxOutputTokens: 8192,           // Token limit for response
                 temperature: 0.4,                // Lower temperature for edits to maintain consistency
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
             
             // Generate content with timeout but without safety settings
             const result = await model.generateContent({
-                contents: [{ parts: [{ text: simplifiedPrompt }] }],
+                contents: [{ role: "user", parts: [{ text: simplifiedPrompt }] }],
                 generationConfig: {
                     stopSequences: ["```"],  // Avoid code block markers
                     temperature: 0.3         // Lower temperature for more predictable edits
@@ -66,9 +66,9 @@ export async function POST(request: NextRequest) {
             
             clearTimeout(timeoutId);
             
-            // Check if the generation was blocked
-            if (result.promptFeedback?.blockReason) {
-                throw new Error(`Content generation was blocked: ${result.promptFeedback.blockReason}`);
+            // Check for empty response instead of using promptFeedback
+            if (!result.response || !result.response.text()) {
+                throw new Error("Gemini API returned an empty response");
             }
             
             // Extract and clean up the response text

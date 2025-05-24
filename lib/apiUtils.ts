@@ -15,7 +15,17 @@ interface ApiResponseOptions {
  * @param options Response configuration options
  * @returns A properly formatted Response object
  */
-export function createApiResponse(data: any, options: ApiResponseOptions = {}) {
+export function createApiResponse(data: any, options: ApiResponseOptions): Response;
+export function createApiResponse(data: any, status: number): Response;
+export function createApiResponse(data: any, optionsOrStatus: ApiResponseOptions | number = {}) {
+  let options: ApiResponseOptions;
+  
+  if (typeof optionsOrStatus === 'number') {
+    options = { status: optionsOrStatus };
+  } else {
+    options = optionsOrStatus;
+  }
+  
   const { 
     status = 200, 
     headers = {},

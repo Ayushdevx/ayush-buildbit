@@ -127,20 +127,19 @@ export async function PUT(request: NextRequest) {
         body = await request.json();
     } catch (error) {
         console.error("Failed to parse request body:", error);
-        return createApiResponse({ error: "Invalid request format" }, 400);
+        return createApiResponse({ error: "Invalid request format" }, { status: 400 });
     }
     
     const { id, completeHtml } = body;
-    
-    // Validate project ID
+      // Validate project ID
     const idValidation = validateProjectId(id);
     if (!idValidation.valid) {
-        return createApiResponse({ error: idValidation.error }, 400);
+        return createApiResponse({ error: idValidation.error }, { status: 400 });
     }
     
     // Validate HTML content
     if (typeof completeHtml === 'undefined') {
-        return createApiResponse({ error: "HTML content is required" }, 400);
+        return createApiResponse({ error: "HTML content is required" }, { status: 400 });
     }
     
     // Additional validation for extremely large content
@@ -218,10 +217,9 @@ export async function DELETE(request: NextRequest) {
     // Extract the project ID from the URL query parameters
     const url = new URL(request.url);
     const idParam = url.searchParams.get('id');
-    
-    // Ensure ID is not null
+      // Ensure ID is not null
     if (!idParam) {
-        return createApiResponse({ error: "Project ID is required as a query parameter" }, 400);
+        return createApiResponse({ error: "Project ID is required as a query parameter" }, { status: 400 });
     }
     
     const id = idParam; // Now id is definitely a string, not null
@@ -229,12 +227,12 @@ export async function DELETE(request: NextRequest) {
     // Validate project ID
     const idValidation = validateProjectId(id);
     if (!idValidation.valid) {
-        return createApiResponse({ error: idValidation.error }, 400);
+        return createApiResponse({ error: idValidation.error }, { status: 400 });
     }
     
     // Check if project exists
     if (!hasProject(id)) {
-        return createApiResponse({ error: "Project not found" }, 404);
+        return createApiResponse({ error: "Project not found" }, { status: 404 });
     }
     
     try {
@@ -250,8 +248,7 @@ export async function DELETE(request: NextRequest) {
         
         // Log the result
         console.log(`Project ${id} deletion ${deleted ? 'successful' : 'failed'}`);
-        
-        return createApiResponse({
+          return createApiResponse({
             success: true,
             message: "Project deleted successfully",
             projectId: id,
@@ -259,7 +256,7 @@ export async function DELETE(request: NextRequest) {
                 requestId: crypto.randomUUID(),
                 timestamp: new Date().toISOString()
             }
-        });
+        }, { status: 200 });
     } catch (error) {
         console.error("Error deleting project:", error);
         
@@ -270,7 +267,7 @@ export async function DELETE(request: NextRequest) {
         return createApiResponse({ 
             error: "Failed to delete project",
             details: errorInfo
-        }, 500);
+        }, { status: 500 });
     }
 }
 
@@ -285,10 +282,10 @@ export async function PATCH(request: NextRequest) {
     // Request validation
     let body;
     try {
-        body = await request.json();
+    body = await request.json();
     } catch (error) {
         console.error("Failed to parse request body:", error);
-        return createApiResponse({ error: "Invalid request format" }, 400);
+        return createApiResponse({ error: "Invalid request format" }, { status: 400 });
     }
     
     const { operation, projectIds, data } = body;
@@ -296,7 +293,7 @@ export async function PATCH(request: NextRequest) {
     if (!operation || !Array.isArray(projectIds) || projectIds.length === 0) {
         return createApiResponse({ 
             error: "Invalid request format. Required fields: operation, projectIds (array)" 
-        }, 400);
+        }, { status: 400 });
     }
     
     // Validate all project IDs
@@ -315,12 +312,11 @@ export async function PATCH(request: NextRequest) {
             successful: [], 
             failed: [] 
         };
-        
-        switch (operation) {
+          switch (operation) {
             case 'tag':
                 // Example: Add tags to multiple projects
                 if (!data?.tags || !Array.isArray(data.tags)) {
-                    return createApiResponse({ error: "Tags array is required for 'tag' operation" }, 400);
+                    return createApiResponse({ error: "Tags array is required for 'tag' operation" }, { status: 400 });
                 }
                 
                 for (const id of projectIds) {
@@ -356,14 +352,12 @@ export async function PATCH(request: NextRequest) {
                     }
                 }
                 break;
-                
-            default:
-                return createApiResponse({ error: `Unsupported operation: ${operation}` }, 400);
+                  default:
+                return createApiResponse({ error: `Unsupported operation: ${operation}` }, { status: 400 });
         }
         
         const duration = performance.now() - startTime;
-        
-        return createApiResponse({
+          return createApiResponse({
             success: true,
             operation,
             results,
@@ -372,17 +366,16 @@ export async function PATCH(request: NextRequest) {
                 timestamp: new Date().toISOString(),
                 processingTimeMs: Math.round(duration)
             }
-        });
+        }, { status: 200 });
     } catch (error) {
         console.error(`Error in bulk ${operation} operation:`, error);
         
         const errorInfo = error instanceof Error ? 
             { message: error.message, name: error.name } : 
             { message: "Unknown error occurred" };
-            
-        return createApiResponse({ 
+              return createApiResponse({ 
             error: `Failed to perform bulk ${operation}`,
             details: errorInfo
-        }, 500);
+        }, { status: 500 });
     }
 }
